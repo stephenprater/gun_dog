@@ -1,30 +1,36 @@
 module GunDog
   class CallRecord
+    using ClassEncoding
+
     attr_accessor :args, :return_value, :method_name
     attr_accessor :stack
 
-    attr_writer :internal, :cyclical
+    attr_writer :internal, :cyclical, :dynamic
 
     def self.from_json(json)
-      cr = new(const_get(json['klass']),
-          json['method_name'],
-          class_method: json['class_method'])
+      cr = new(
+        Utilities.get_class(json['klass']),
+        json['method_name'],
+        class_method: json['class_method'],
+        generated: json['generated']
+      )
 
       cr.instance_eval do
         @internal = json['internal']
         @cyclical = json['cyclical']
         @args = json['args']
         @return_value = json['return_value']
-        @stack = json['stack']
+        @stack = TraceStack.from_array(klass: @klass, stack: json['stack']) if json['stack']
       end
 
       cr
     end
 
-    def initialize(klass, method_name, class_method: false)
+    def initialize(klass, method_name, class_method: false, generated: false)
       @klass = klass
       @method_name = method_name
       @class_method = class_method
+      @generated = generated
     end
 
     def method_location
@@ -39,31 +45,59 @@ module GunDog
       !!@cyclical
     end
 
+    def dynamic?
+      !!@dynamic
+    end
+
     def class_method?
       !!@class_method
     end
 
-    def to_s
-      "def #{method_name}(#{type_signatures(args)}) => #{return_value}"
+    def generated?
+      !!@generated
+    end
+
+    def unbound_method
+      if class_method?
+        @klass.method(method_name).unbind
+      else
+        @klass.instance_method(method_name)
+      end
+    end
+
+    def call_record_signature
+      "#{generated? ? "[generated] " : nil } \
+        def #{class_method? ? "self." : nil}#{method_name}(#{type_signatures(args)}) : #{return_value.class} \
+        #{ internal? ? " (internal)" : nil } \
+        #{ cyclical? ? " (cyclical)" : nil } \
+        #{ dynamic? ? " (dynamic)" : nil }".squish
     end
 
     def as_json
       {
-        "klass" => @klass,
-        "method_name" => method_name,
+        "klass" => @klass.json_encoded,
+        "method_name" => method_name.to_s,
         "class_method" => class_method?,
+        "generated" => generated?,
         "internal" => internal?,
         "cyclical" => cyclical?,
-        "args" => args,
+        "dynamic" => dynamic?,
+        "args" => args.each_pair.with_object({}) { |(k,v), memo| memo[k.to_s] = v},
         "return_value" => return_value,
-        "stack" => stack
+        "stack" => stack&.as_json
       }.reject { |_,v| v.nil? }
     end
 
     private
 
     def type_signatures(args)
-      args.each_pair.map { |k,v| "#{k} : #{v}" }.join(', ')
+      if method_name == :method_missing
+        #TODO pass v here back through this method to show the type signatures for each method rather than
+        # individual arguments
+        args.each_pair.map { |k,v| "#{k} : #{v ? v.to_s : v.class}" }.join(', ')
+      else
+        args.each_pair.map { |k,v| "#{k} : #{v.class}" }.join(', ')
+      end
     end
 
     def method_separator

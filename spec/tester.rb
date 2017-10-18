@@ -5,6 +5,18 @@ class Tester
     end
   end
 
+  class TestRecord < ActiveRecord::Base
+    scope :recordable_scope, -> { where(foo: 1) }
+
+    def supressed!
+      "this method is supressed and will not appear in call records"
+    end
+
+    def some_stuff
+      self.class.recordable_scope.map(&:supressed!)
+    end
+  end
+
   class AbstractFactory
     def self.hammer
       new
@@ -12,6 +24,12 @@ class Tester
 
     def bang
       "bang!"
+    end
+  end
+
+  def self.eigen_method
+    new.tap do |t|
+      t.bar
     end
   end
 
@@ -26,6 +44,24 @@ class Tester
       poop.smell?
       AbstractFactory.hammer.bang
     end
+
+    TestRecord.recordable_scope
+    tr = TestRecord.create(foo: 1)
+    tr.foo = 2
+    tr.save
+    tr.foo
+  end
+
+  def method_missing(name, *args, &block)
+    self.send("#{name}_was_missing")
+  end
+
+  def get_some_ar_foo
+    tr = TestRecord.create(foo: 1, bar: 'bar')
+    tr.foo
+    tr.bar
+    tr.foo = 2
+    tr.bar = 'baz'
   end
 
   def method_interrupted
@@ -47,6 +83,10 @@ class Tester
 
   def foo(arg)
     'foo'
+  end
+
+  def floobert_was_missing
+    true
   end
 
   def bar

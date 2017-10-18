@@ -1,5 +1,11 @@
 require "bundler/setup"
 require "gun_dog"
+require "active_record"
+
+ActiveRecord::Base.establish_connection(
+  adapter:  'sqlite3',
+  database: ':memory:'
+)
 
 require "tester"
 
@@ -12,5 +18,16 @@ RSpec.configure do |config|
 
   config.expect_with :rspec do |c|
     c.syntax = :expect
+  end
+
+  config.before(:each, database: true) do
+    ActiveRecord::Base.connection.create_table :test_records do |t|
+      t.integer :foo
+      t.string :bar
+    end
+  end
+
+  config.after(:each, database: true) do
+    ActiveRecord::Base.connection.drop_table :test_records
   end
 end

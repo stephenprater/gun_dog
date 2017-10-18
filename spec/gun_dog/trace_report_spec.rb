@@ -8,7 +8,7 @@ RSpec.describe GunDog::TraceReport do
   }
 
   let(:trace_json) {
-    <<~JS.squish.gsub(/\s+/,'')
+    <<~JS.squish
     {
       "klass": "Tester",
       "collaborating_classes": [],
@@ -17,21 +17,23 @@ RSpec.describe GunDog::TraceReport do
           "klass": "Tester",
           "method_name": "foo",
           "class_method" : false,
+          "generated": false,
           "internal": false,
           "cyclical": false,
-          "args": { "arg" : "String" },
-          "return_value": "String"
+          "dynamic": false,
+          "args": { "arg" : "a thing" },
+          "return_value": "foo"
         }
       ]
     }
     JS
   }
 
-
+  #TODO Compare these JSON structures with json schema or something instead of MultiJSON load
 
   describe '#to_json' do
     it 'serialize a TraceReport to JSON' do
-      expect(trace.to_json.squish).to eq trace_json
+      expect(MultiJson.load(trace.to_json)).to eq MultiJson.load(trace_json)
     end
   end
 
@@ -62,7 +64,11 @@ RSpec.describe GunDog::TraceReport do
 
     it 'loads a json file into a trace' do
       trace.save('tmp/tester-trace.json')
-      expect(described_class.load('tmp/tester-trace.json').to_json).to eq trace_json
+      expect(MultiJson.load(described_class.load('tmp/tester-trace.json').to_json)).to eq MultiJson.load(trace_json)
+    end
+
+    context 'when the dump includes a singleton class' do
+
     end
   end
 end

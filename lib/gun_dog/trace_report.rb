@@ -1,6 +1,8 @@
 module GunDog
   class TraceReport
-    attr_reader :klass
+    using ClassEncoding
+
+    attr_reader :klass, :suppression_set
 
     def self.load(filename)
       json = MultiJson.load(File.open(filename, 'r') { |f| f.read })
@@ -19,12 +21,21 @@ module GunDog
       tr
     end
 
+    def all_calls
+      @all_calls ||= []
+    end
+
+    def explore
+      GunDog::TraceExplorer.new(self)
+    end
+
     def call_records
       @call_records ||= []
     end
 
-    def initialize(klass)
+    def initialize(klass, suppression_set: [])
       @klass = klass
+      @suppression_set = suppression_set
     end
 
     def collaborating_classes
@@ -52,19 +63,16 @@ module GunDog
 
     def as_json
       {
-        "klass" => klass,
-        "collaborating_classes" => collaborating_classes.to_a,
+        "klass" => klass.to_s,
+        "collaborating_classes" => collaborating_classes.map { |k| k.json_encoded },
         "call_records" => call_records.map(&:as_json)
       }
+
     end
+
 
     def to_json
       MultiJson.dump(as_json)
-    end
-
-    def find_call_record(doc_name)
-      @find_cache ||= @call_records.group_by(&:method_location)
-      @find_cache[doc_name]
     end
 
     def method_list
