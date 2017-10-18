@@ -62,7 +62,7 @@ module GunDog
     def since_first_klass_entry
       # the stack since the first call to a traced method excluding the current
       # frame
-      self.slice((@traced_klass_entry_points.first || 1) .. -2)
+      self.slice((@traced_klass_entry_points.first || 1) .. -2) || GunDog::TraceStack.new(@klass)
     end
 
     def call_stack

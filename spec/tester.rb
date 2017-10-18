@@ -5,7 +5,12 @@ class Tester
     end
   end
 
+  class OtherTester < ActiveRecord::Base
+    belongs_to :test_record
+  end
+
   class TestRecord < ActiveRecord::Base
+    has_many :other_testers
     scope :recordable_scope, -> { where(foo: 1) }
 
     def supressed!

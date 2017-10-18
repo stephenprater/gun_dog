@@ -8,7 +8,12 @@ RSpec.describe GunDog do
   before(:each) do
     GunDog.configure do |c|
       c.suppress_methods = {
-        ActiveRecord::Base => ['self.default_scope_override', 'supressed!']
+        ActiveRecord::Base => [
+          'self.default_scope_override',
+          'supressed!',
+          'self.__callbacks',
+          'self._reflections',
+        ]
       }
     end
   end
@@ -91,12 +96,29 @@ RSpec.describe GunDog do
       trace = GunDog.trace(Tester::TestRecord) { Tester.new.get_some_ar_foo }.explore
 
       aggregate_failures do
-        expect(trace.unique_call_signatures).to contain_exactly(
+        expect(trace.unique_call_signatures).to include(
           "[generated] def foo() : Fixnum",
           "[generated] def foo=(value : Fixnum) : Fixnum",
           "[generated] def bar() : String",
           "[generated] def bar=(value : String) : String"
         )
+      end
+    end
+
+    context 'tracking AR relationship methods', :database do
+      before do
+        other_tester = Tester::OtherTester.create(bacon: 'smelly')
+        Tester::TestRecord.create(foo: 1, other_testers: [other_tester])
+      end
+
+      it 'works on has many' do
+        trace = GunDog.trace(Tester::TestRecord) { Tester::TestRecord.first.other_testers.first }.explore
+        expect(trace.unique_call_signatures).to include("[generated] def other_testers(args : Array) : Tester::OtherTester::ActiveRecord_Associations_CollectionProxy")
+      end
+
+      it 'works on belongs to' do
+        trace = GunDog.trace(Tester::OtherTester) { Tester::OtherTester.first.test_record }.explore
+        expect(trace.unique_call_signatures).to include("[generated] def test_record(args : Array) : Tester::TestRecord")
       end
     end
 
@@ -107,8 +129,7 @@ RSpec.describe GunDog do
       trace = GunDog.trace(Tester::TestRecord) { Tester::TestRecord.recordable_scope }.explore
 
       aggregate_failures do
-        expect(trace.unique_call_signatures).to contain_exactly(
-          "def self.default_scope_override() : NilClass",
+        expect(trace.unique_call_signatures).to include(
           "def self.recordable_scope(args : Array) : Tester::TestRecord::ActiveRecord_Relation"
         )
       end
@@ -121,7 +142,7 @@ RSpec.describe GunDog do
       trace = GunDog.trace(Tester::TestRecord) { Tester::TestRecord.new.some_stuff}.explore
 
       aggregate_failures do
-        expect(trace.unique_call_signatures).to contain_exactly(
+        expect(trace.unique_call_signatures).to include(
           "def some_stuff() : Array",
           "def self.recordable_scope() : Tester::TestRecord::ActiveRecord_Relation"
         )

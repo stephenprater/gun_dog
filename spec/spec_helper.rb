@@ -25,9 +25,15 @@ RSpec.configure do |config|
       t.integer :foo
       t.string :bar
     end
+
+    ActiveRecord::Base.connection.create_table :other_testers do |t|
+      t.integer :test_record_id
+      t.string :bacon
+    end
   end
 
   config.after(:each, database: true) do
     ActiveRecord::Base.connection.drop_table :test_records
+    ActiveRecord::Base.connection.drop_table :other_testers
   end
 end

@@ -8,6 +8,7 @@ module GunDog
       @klass = klass
       @trace_report = TraceReport.new(klass, suppression_set: build_suppression_set(suppress))
       @trace_report.stack << MethodOwnerStackFrame.new(GunDog, :trace)
+      @ancestor_cache = {}
       @exec_block = exec_block
     end
 
@@ -84,9 +85,20 @@ module GunDog
     def trace_method(binding_class, defined_class)
       return :eigen if defined_class == klass.singleton_class
       return false if binding_class != klass
-      return :meta if binding_class < defined_class && defined_class.anonymous?
+      return :meta if klass < defined_class && (defined_class.anonymous? || after_super?(defined_class))
       return :instance if defined_class == klass
       false
+    end
+
+    def after_super?(defined_class)
+      return true unless klass.superclass != Object
+
+      if @ancestor_cache.has_key?(defined_class)
+        @ancestor_cache[defined_class]
+      else
+        ancestors = klass.ancestors
+        @ancestor_cache[defined_class] = ancestors.index(klass.superclass) > ancestors.index(defined_class)
+      end
     end
 
     def set_method_return_trace(call_record)
@@ -116,10 +128,14 @@ module GunDog
 
     def build_suppression_set(suppression_list)
       suppression_list.map { |method_id|
-        if class_method = method_id[/self\.(.*)/,1]
-          klass.method(class_method).unbind
-        else
-          klass.instance_method(method_id)
+        begin
+          if class_method = method_id[/self\.(.*)/,1]
+            klass.method(class_method).unbind
+          else
+            klass.instance_method(method_id)
+          end
+        rescue NameError
+          nil
         end
       }.uniq.to_set
     end
