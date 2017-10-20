@@ -1,9 +1,40 @@
 class Tester
+  attr_accessor :accessor
+
+  module ShouldBeRecorded
+    def record_me
+      true
+    end
+  end
+
+  module ShouldBeRecordedWhenExtended
+    def record_extended
+      'yes'
+    end
+  end
+
+  module PrependedModule
+    def record_prepended
+      true
+    end
+  end
+
   class Poop
     def smell?
       true
     end
   end
+
+  module Refined
+    refine Tester do
+      def refine_foo
+        bar
+      end
+    end
+  end
+
+  include ShouldBeRecorded
+  prepend PrependedModule
 
   class OtherTester < ActiveRecord::Base
     belongs_to :test_record
@@ -59,6 +90,13 @@ class Tester
 
   def method_missing(name, *args, &block)
     self.send("#{name}_was_missing")
+  end
+
+  def some_module
+    self.extend(ShouldBeRecordedWhenExtended)
+    record_me
+    record_extended
+    record_prepended
   end
 
   def get_some_ar_foo

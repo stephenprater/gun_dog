@@ -1,6 +1,9 @@
 require "spec_helper"
 
+
 RSpec.describe GunDog do
+  using Tester::Refined
+
   it "has a version number" do
     expect(GunDog::VERSION).not_to be nil
   end
@@ -28,6 +31,25 @@ RSpec.describe GunDog do
         expect(trace['Tester#foo'].count).to eq 1
         expect(trace['Tester#foo'][0].args).to eq(:arg => 'a thing')
         expect(trace['Tester#foo'][0].return_value).to eq 'foo'
+      end
+    end
+
+    it 'logs attr_accessor calls' do
+      trace = GunDog.trace(Tester) { Tester.new.tap { |t| t.accessor = 5; t.accessor } }.explore
+
+      # Accessor methods are special VM calls and can't be detected by
+      # tracepoint or any other debugging tool (they don't even make stack
+      # frames!) - because we want to include them as being "called" though we
+      # need to wrap them in ruby level calls that can be introspected by
+      # Tracepoint - then when we're done - undef our (slow) ruby
+      # implementation and put the magical attr_writers and attr_readers back
+
+      aggregate_failures do
+        expect(trace.unique_call_signatures).to include(
+          'def accessor=(arg1 : Fixnum) : Fixnum',
+          'def accessor() : Fixnum'
+        )
+        expect(Tester.instance_method(:accessor).source).to match(/attr/)
       end
     end
 
@@ -85,9 +107,7 @@ RSpec.describe GunDog do
     it 'when a call to a collaborating class originates from outside the traced class' do
       trace = GunDog.trace(Tester) { CollaboratingTester.new.foo }.explore
 
-      aggregate_failures do
-        expect(trace.collaborating_classes).to_not include CollaboratingTester
-      end
+      expect(trace.collaborating_classes).to_not include CollaboratingTester
     end
 
     it 'tracks weird bullshit like AR attribute methods correctly', :database do
@@ -113,12 +133,12 @@ RSpec.describe GunDog do
 
       it 'works on has many' do
         trace = GunDog.trace(Tester::TestRecord) { Tester::TestRecord.first.other_testers.first }.explore
-        expect(trace.unique_call_signatures).to include("[generated] def other_testers(args : Array) : Tester::OtherTester::ActiveRecord_Associations_CollectionProxy")
+        expect(trace.unique_call_signatures).to include("[Tester::TestRecord::GeneratedAssociationMethods] def other_testers(args : Array) : Tester::OtherTester::ActiveRecord_Associations_CollectionProxy")
       end
 
       it 'works on belongs to' do
         trace = GunDog.trace(Tester::OtherTester) { Tester::OtherTester.first.test_record }.explore
-        expect(trace.unique_call_signatures).to include("[generated] def test_record(args : Array) : Tester::TestRecord")
+        expect(trace.unique_call_signatures).to include("[Tester::OtherTester::GeneratedAssociationMethods] def test_record(args : Array) : Tester::TestRecord")
       end
     end
 
@@ -142,11 +162,39 @@ RSpec.describe GunDog do
       trace = GunDog.trace(Tester::TestRecord) { Tester::TestRecord.new.some_stuff}.explore
 
       aggregate_failures do
-        expect(trace.unique_call_signatures).to include(
-          "def some_stuff() : Array",
-          "def self.recordable_scope() : Tester::TestRecord::ActiveRecord_Relation"
+        expect(trace.unique_call_signatures).to_not include(
+          "def self.default_scope_override() : Tester::TestRecord::ActiveRecord_Relation",
+          "def self.__callbacks() : Hash",
+          "def self._reflections() : NilClass"
         )
       end
+    end
+
+    it 'tracks module included methods on the tracked class' do
+      trace = GunDog.trace(Tester) { Tester.new.some_module}.explore
+
+      expect(trace.unique_call_signatures).to include(
+        '[Tester::ShouldBeRecorded] def record_me() : TrueClass (internal)',
+        '[Tester::ShouldBeRecordedWhenExtended (extended)] def record_extended() : String (internal)',
+        '[Tester::PrependedModule (prepended)] def record_prepended() : TrueClass (internal)'
+      )
+    end
+
+    it 'tracks methods introduced or overriden by refinements' do
+      trace = GunDog.trace(Tester) { Tester.new.refine_foo }.explore
+
+      expect(trace.unique_call_signatures).to include(
+        '[using Tester::Refined] def refine_foo(?) : String',
+        'def bar() : String (internal)'
+      )
+    end
+
+    it 'tracks methods introduced by extending the instance' do
+      trace = GunDog.trace(Tester) { Tester.new.some_module }.explore
+
+      expect(trace.unique_call_signatures).to include(
+      )
+
     end
 
     it 'can successfully log missing methods as their called name' do
@@ -185,9 +233,15 @@ RSpec.describe GunDog do
       end
     end
 
-    context 'a big ol integration test', :database do
+    context 'you can monitor performance or explore in this test', :database do
       it 'includes call records for the traced class' do
-        trace = GunDog.trace(Tester) { Tester.test }.explore
+        trace = nil
+
+        Benchmark.bm do |x|
+          x.report {
+            trace = GunDog.trace(Tester) { 10.times { Tester.test } }.explore
+          }
+        end
 
         # require 'pry'; binding.pry
 

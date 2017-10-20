@@ -2,7 +2,7 @@ module GunDog
   class CallRecord
     using ClassEncoding
 
-    attr_accessor :args, :return_value, :method_name
+    attr_accessor :args, :return_value, :method_name, :extra_module
     attr_accessor :stack
 
     attr_writer :internal, :cyclical, :dynamic
@@ -11,8 +11,8 @@ module GunDog
       cr = new(
         Utilities.get_class(json['klass']),
         json['method_name'],
-        class_method: json['class_method'],
-        generated: json['generated']
+        origin: json['origin']
+
       )
 
       cr.instance_eval do
@@ -26,11 +26,11 @@ module GunDog
       cr
     end
 
-    def initialize(klass, method_name, class_method: false, generated: false)
+    def initialize(klass, method_name, origin: false, extra_module: nil)
       @klass = klass
       @method_name = method_name
-      @class_method = class_method
-      @generated = generated
+      @origin = origin
+      @extra_module = extra_module
     end
 
     def method_location
@@ -50,11 +50,32 @@ module GunDog
     end
 
     def class_method?
-      !!@class_method
+      @origin == :eigen
     end
 
-    def generated?
-      !!@generated
+    def origin
+      @origin
+    end
+
+    def special_origin?
+      [:meta, :included, :refinement].include?(@origin)
+    end
+
+    def origin_string
+      case @origin
+      when :meta
+        '[generated]'
+      when :included
+        "[#{unbound_method.owner.name.to_s}]"
+      when :extended
+        "[#{extra_module.name.to_s} (extended)]"
+      when :prepended
+        "[#{unbound_method.owner.name.to_s} (prepended)]"
+      when :refinement
+        "[using #{extra_module.split('@')[1][0..-2]}]"
+      else
+        nil
+      end
     end
 
     def unbound_method
@@ -66,7 +87,7 @@ module GunDog
     end
 
     def call_record_signature
-      "#{generated? ? "[generated] " : nil } \
+      "#{origin_string} \
         def #{class_method? ? "self." : nil}#{method_name}(#{type_signatures(args)}) : #{return_value.class} \
         #{ internal? ? " (internal)" : nil } \
         #{ cyclical? ? " (cyclical)" : nil } \
@@ -77,8 +98,7 @@ module GunDog
       {
         "klass" => @klass.json_encoded,
         "method_name" => method_name.to_s,
-        "class_method" => class_method?,
-        "generated" => generated?,
+        "origin" => class_method?,
         "internal" => internal?,
         "cyclical" => cyclical?,
         "dynamic" => dynamic?,
@@ -95,6 +115,8 @@ module GunDog
         #TODO pass v here back through this method to show the type signatures for each method rather than
         # individual arguments
         args.each_pair.map { |k,v| "#{k} : #{v ? v.to_s : v.class}" }.join(', ')
+      elsif origin == :refinement
+        '?'
       else
         args.each_pair.map { |k,v| "#{k} : #{v.class}" }.join(', ')
       end

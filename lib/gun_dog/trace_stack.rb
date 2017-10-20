@@ -22,7 +22,13 @@ module GunDog
     end
 
     def classes_in_stack
-      self.group_by(&:klass).keys.to_set
+      self.group_by { |frame|
+        if refined_class = frame.klass.to_s[/#<refinement:(.*?)@/,1]
+          Kernel.const_get(refined_class)
+        else
+          frame.klass
+        end
+      }.keys.to_set
     end
 
     def initialize(klass)
@@ -51,6 +57,7 @@ module GunDog
     end
 
     def preceded_by_traced_klass?
+      # FIXME this method is terribly ineffcient
       traced_klasses = self.map(&:klass)
       traced_klasses.include?(klass) || traced_klasses.include?(klass.singleton_class)
     end
@@ -85,7 +92,9 @@ module GunDog
     end
 
     def frame_owned_by_traced_klass?(frame)
-      frame.klass == klass || frame.klass.singleton_class == klass.singleton_class
+      frame.klass == klass ||
+      frame.klass.singleton_class == klass.singleton_class ||
+      frame.klass.to_s[/#<refinement:(.*?)@/,1] == klass.to_s
     end
 
     def as_json
