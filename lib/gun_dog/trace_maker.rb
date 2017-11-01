@@ -3,6 +3,8 @@ require 'method_source'
 
 module GunDog
   class TraceMaker
+    using GunDog::Utilities::RefinementIntrospection
+
     attr_reader :trace_report, :return_trace, :call_trace, :klass, :complete_call_list, :c_call_trace
 
     def initialize(klass, suppress: [], &exec_block)
@@ -77,63 +79,70 @@ module GunDog
 
     def set_call_trace
       @call_trace ||= TracePoint.new(:call) do |tp|
-        trace_report.stack << MethodOwnerStackFrame.new(tp.defined_class, tp.method_id)
+        begin
+          tp.disable
 
-        tp.disable
+          trace_report.stack << MethodOwnerStackFrame.new(tp.defined_class, tp.method_id)
 
-        binding_class = tp.binding.receiver.class
-        trace_type = trace_method(binding_class, tp.defined_class, tp.self)
-        method_id = tp.binding.eval('__callee__') || tp.method_id
+          binding_class = tp.binding.receiver.class
+          trace_type = trace_method(binding_class, tp.defined_class, tp.self)
+          method_id = tp.binding.eval('__callee__') || tp.method_id
 
-        # puts "#{method_id} => #{trace_type} (#{tp.defined_class})" if trace_type
-
-        unless trace_type
-          tp.enable
-          next
-        end
-
-        call_record = nil
-
-        if trace_type == :refinement
-          call_record = CallRecord.new(
-            klass,
-            method_id,
-            origin: trace_type,
-            extra_module: tp.defined_class.to_s
-          )
-        else
-          called_method = if trace_type == :meta || trace_type == :included
-                            tp.binding.eval('self').method(method_id)
-                          else
-                            tp.self.method(tp.method_id)
-                          end
-
-          call_record = CallRecord.new(
-            klass,
-            called_method.name,
-            origin: trace_type,
-            extra_module: (tp.defined_class if trace_type == :extended)
-          )
-
-          call_record.args = called_method.parameters.each.with_object({}) do |p, memo|
-            memo[p.last] = tp.binding.local_variable_get(p.last)
+          unless trace_type
+            tp.enable
+            next
           end
+
+          call_record = nil
+
+          if trace_type == :refinement
+            call_record = CallRecord.new(
+              klass,
+              method_id,
+              origin: trace_type,
+              extra_module: tp.defined_class.to_s
+            )
+          else
+            called_method = if trace_type == :meta || trace_type == :included
+                              tp.binding.eval('self').method(method_id)
+                            else
+                              tp.self.method(tp.method_id)
+                            end
+
+            call_record = CallRecord.new(
+              klass,
+              called_method.name,
+              origin: trace_type,
+              extra_module: (tp.defined_class if trace_type == :extended)
+            )
+
+            call_record.args = called_method.parameters.each.with_object({}) do |p, memo|
+              memo[p.last] = tp.binding.local_variable_get(p.last)
+            end
+          end
+
+          trace_report.call_records << call_record
+
+          mrt = set_method_return_trace(call_record)
+          @mrt_tracers << mrt
+          mrt.enable
+
+          tp.enable
+        rescue => e
+          STDOUT.puts "#{tp.method_id} => #{trace_type} (#{tp.defined_class})"
+          puts "#{e.class} => #{e.message}"
+          puts "=============================================================================="
+          puts e.backtrace
+          puts "=============================================================================="
+          tp.disable
         end
-
-        trace_report.call_records << call_record
-
-        mrt = set_method_return_trace(call_record)
-        @mrt_tracers << mrt
-        mrt.enable
-
-        tp.enable
       end
     end
 
     def trace_method(binding_class, defined_class, obj)
       return :eigen if defined_class == klass.singleton_class
       return false if binding_class != klass
-      return :refinement if defined_class.to_s =~ /refinement/
+      return :refinement if defined_class.is_refinement?
       return :meta if klass < defined_class && defined_class.anonymous?
       return :prepended if klass < defined_class && prepended?(defined_class)
       return :included if klass < defined_class && after_super?(defined_class)

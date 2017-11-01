@@ -16,8 +16,7 @@ RSpec.describe GunDog::TraceReport do
         {
           "klass": "Tester",
           "method_name": "foo",
-          "class_method" : false,
-          "generated": false,
+          "origin" : "instance",
           "internal": false,
           "cyclical": false,
           "dynamic": false,

@@ -1,5 +1,7 @@
 module GunDog
   class TraceStack < Array
+    using Utilities::RefinementIntrospection
+
     attr_reader :collaborating_classes, :klass
 
     def self.from_json(json)
@@ -92,9 +94,9 @@ module GunDog
     end
 
     def frame_owned_by_traced_klass?(frame)
-      frame.klass == klass ||
-      frame.klass.singleton_class == klass.singleton_class ||
-      frame.klass.to_s[/#<refinement:(.*?)@/,1] == klass.to_s
+      return true if frame.klass == klass
+      return true if frame.klass.singleton_class == klass.singleton_class
+      return true if frame.klass.refined_class == klass
     end
 
     def as_json

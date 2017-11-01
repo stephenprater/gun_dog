@@ -1,5 +1,22 @@
 module GunDog
   module Utilities
+    module RefinementIntrospection
+      refine Module do
+        def is_refinement?
+          to_s.present? && to_s =~ /refinement/
+        end
+
+        def refined_class
+          target = to_s[/#<refinement:(.*?)@/,1]
+          return nil unless target
+          const_get(target)
+        rescue NoMethodError => e
+          # hack - this is raised on AR objects if you call to_s before the
+          # the inherited hooks are finished running
+        end
+      end
+    end
+
     class UnencodableClass; end
 
     def self.get_class(str)
@@ -13,7 +30,6 @@ module GunDog
         begin
           eval(str)
         rescue => e
-          require 'pry'; binding.pry
           e.message
         end
       end

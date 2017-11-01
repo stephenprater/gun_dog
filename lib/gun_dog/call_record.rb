@@ -11,8 +11,8 @@ module GunDog
       cr = new(
         Utilities.get_class(json['klass']),
         json['method_name'],
-        origin: json['origin']
-
+        origin: json['origin'],
+        extra_module: ( Utilities.get_class(json['extra_module']) if json['extra_module'] )
       )
 
       cr.instance_eval do
@@ -98,7 +98,8 @@ module GunDog
       {
         "klass" => @klass.json_encoded,
         "method_name" => method_name.to_s,
-        "origin" => class_method?,
+        "origin" => origin,
+        "extra_module" => @extra_module,
         "internal" => internal?,
         "cyclical" => cyclical?,
         "dynamic" => dynamic?,
